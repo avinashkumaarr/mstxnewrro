@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Next.js
+.next/
+out/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Hardhat generated files
+web3/artifacts/
+web3/cache/
+web3/typechain-types/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
