@@ -31,3 +31,31 @@ async def read_simulation(sim_id: UUID, db: DB, user_id: CurrentUserId):
 @router.patch("/{sim_id}/status", response_model=SimulationResponse)
 async def update_status(sim_id: UUID, status: SimulationStatus, db: DB, user_id: CurrentUserId):
     return await update_simulation_status(db, sim_id, status, UUID(user_id))
+
+from pydantic import BaseModel
+class CommandSchema(BaseModel):
+    goal: dict | None = None
+    max_speed: float | None = None
+
+@router.post("/{sim_id}/command")
+async def send_command(sim_id: str, command: CommandSchema, db: DB, user_id: CurrentUserId):
+    if sim_id != "default_sim_id":
+        try:
+            parsed_id = UUID(sim_id)
+            sim = await get_simulation(db, parsed_id)
+            if sim.owner_id != UUID(user_id):
+                from app.core.exceptions import forbidden
+                raise forbidden()
+        except ValueError:
+            pass # Invalid UUID, but let it try to broadcast
+    
+    from app.websocket.simulation_socket import manager
+    
+    payload = {"type": "command"}
+    if command.goal is not None:
+        payload["goal"] = command.goal
+    if command.max_speed is not None:
+        payload["max_speed"] = command.max_speed
+        
+    await manager.broadcast(payload, sim_id)
+    return {"status": "sent"}

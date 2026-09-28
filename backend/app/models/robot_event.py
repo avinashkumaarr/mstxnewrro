@@ -45,8 +45,7 @@ class RobotEvent(Base):
     robot: Mapped["Robot"] = relationship("Robot", back_populates="events")  # type: ignore[name-defined]
     simulation: Mapped["Simulation"] = relationship("Simulation", back_populates="events")  # type: ignore[name-defined]
     blockchain_record: Mapped["BlockchainRecord"] = relationship(  # type: ignore[name-defined]
-        "BlockchainRecord", back_populates="event", lazy="noload",
-        primaryjoin="RobotEvent.id == foreign(BlockchainRecord.event_id)"
+        "BlockchainRecord", back_populates="event", uselist=False
     )
 
     __table_args__ = (

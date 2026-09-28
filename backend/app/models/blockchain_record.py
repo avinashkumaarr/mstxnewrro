@@ -34,6 +34,5 @@ class BlockchainRecord(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     event: Mapped["RobotEvent"] = relationship(  # type: ignore[name-defined]
-        "RobotEvent", back_populates="blockchain_record", lazy="noload",
-        primaryjoin="BlockchainRecord.event_id == foreign(RobotEvent.id)"
+        "RobotEvent", back_populates="blockchain_record"
     )

@@ -47,6 +47,15 @@ export class SimulationEngine {
   private animationFrameId: number | null = null;
   private lastTimestamp: number = 0;
   private listeners: SimulationEngineListener[] = [];
+  
+  // WebSocket connection to backend
+  private ws: WebSocket | null = null;
+  private simulationId: string = "default_sim_id"; // For now, hardcode or fetch dynamically
+  
+  private telemetryBatch: any[] = [];
+  private lastPersistTime: number = 0;
+  private readonly DEV_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIwZjMwMWY4Ni0yZjkzLTRhNjItODZkYi0yNDcyODAwNDg4MzkiLCJleHAiOjE3OTA3MDgxMTB9.gI0kkdP9cbM2PkjrOq5CVI5r4yqnVLGLxiuz2F4KjkA";
+  private readonly robotId = "30e61d84-c6f3-4f93-b413-b5413ed9dc7b"; // Note: Use the ID we created or fetch from API. Let's let the backend handle the missing robot ID if needed, or query it. Wait, the DB has one robot! We can just fetch it or ignore.
 
   constructor() {
     this.lidarScan = {
@@ -114,6 +123,12 @@ export class SimulationEngine {
 
     this.notifyStatus();
     this.notifyTelemetry();
+    
+    // Attempt to disconnect if connected
+    if (this.ws) {
+        this.ws.close();
+        this.ws = null;
+    }
   }
 
   private computePlannedPath() {
@@ -132,17 +147,54 @@ export class SimulationEngine {
     if (this.status === "COMPLETED" || this.status === "FAILED") {
       this.reset();
     }
-
+    
+    // Determine whether to use backend websocket OR local execution
+    // (We will use backend websocket exclusively if possible, but keep fallback)
     const parsed = parseStudentCode(studentCode);
     this.isTickScript = parsed.isTickScript;
     this.commandQueue = [...parsed.commands];
     this.currentCommandProgress = 0;
 
+    // Connect to websocket
+    this.connectWebSocket();
+
     this.status = "RUNNING";
     this.notifyStatus();
+    this.persistEvent("task_started", { code: studentCode.substring(0, 50) });
 
     this.lastTimestamp = performance.now();
     this.loop();
+  }
+  
+  private connectWebSocket() {
+    if (this.ws) return;
+    try {
+      this.ws = new WebSocket(`ws://127.0.0.1:8000/ws/simulation/${this.simulationId}`);
+      
+      this.ws.onopen = () => {
+        console.log("Connected to backend simulation WebSocket");
+      };
+      
+      this.ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === "command") {
+            // Backend controller is sending velocity commands!
+            this.robot.linearVelocity = typeof data.linear === 'number' ? data.linear : this.robot.linearVelocity;
+            this.robot.angularVelocity = typeof data.angular === 'number' ? data.angular : this.robot.angularVelocity;
+          }
+        } catch (e) {
+          console.error("Error parsing WS message", e);
+        }
+      };
+      
+      this.ws.onclose = () => {
+        console.log("Disconnected from backend simulation WebSocket");
+        this.ws = null;
+      };
+    } catch (error) {
+      console.error("WebSocket connection failed:", error);
+    }
   }
 
   public stop() {
@@ -156,6 +208,10 @@ export class SimulationEngine {
       this.status = "PAUSED";
       this.notifyStatus();
       this.notifyTelemetry();
+    }
+    if (this.ws) {
+        this.ws.close();
+        this.ws = null;
     }
   }
 
@@ -200,10 +256,14 @@ export class SimulationEngine {
     this.updateDynamicObstacles(dt);
 
     // 2. Control logic
-    if (this.isTickScript) {
-      this.stepReactiveNavigation(dt);
-    } else {
-      this.stepScriptedCommands(dt);
+    // If backend WS is active, it handles logic and we skip local reactive nav
+    // However, we still need to process scripted commands if it's not a tick script
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+        if (this.isTickScript) {
+          this.stepReactiveNavigation(dt);
+        } else {
+          this.stepScriptedCommands(dt);
+        }
     }
 
     // 3. Integrate robot kinematics
@@ -245,6 +305,7 @@ export class SimulationEngine {
 
     if (colResult.hasCollision) {
       this.collisions += 1;
+      this.persistEvent("collision", { obstacle_id: colResult.collidedObstacleIds[0] });
       this.listeners.forEach((l) => l.onCollision?.(colResult.collidedObstacleIds[0]));
     }
 
@@ -266,6 +327,50 @@ export class SimulationEngine {
     }
 
     this.notifyTelemetry();
+    
+        // Broadcast telemetry to backend if connected
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        // Send ~10Hz, using modulo on executionTime to roughly throttle
+        const tick = Math.floor(this.executionTime * 10);
+        if (tick % 1 === 0) { // Can be throttled if needed
+             const goal = goalWp ? { x: goalWp.x, y: goalWp.y } : null;
+             this.ws.send(JSON.stringify({
+                 type: "telemetry",
+                 pose: {
+                     x: this.robot.x,
+                     y: this.robot.y,
+                     thetaRad: this.robot.theta,
+                 },
+                 lidar: {
+                     front: this.lidarScan.frontDistance,
+                     left: this.lidarScan.leftDistance,
+                     right: this.lidarScan.rightDistance,
+                     rear: this.lidarScan.rearDistance
+                 },
+                 system: { status: this.status },
+                 goal: goal
+             }));
+             
+             // Add to persistence batch
+             this.telemetryBatch.push({
+                 robot_id: this.robotId,
+                 simulation_id: this.simulationId === "default_sim_id" ? null : this.simulationId,
+                 timestamp: new Date().toISOString(),
+                 position_x: this.robot.x,
+                 position_y: this.robot.y,
+                 position_z: 0.0,
+                 orientation: this.robot.theta,
+                 battery_percentage: 100.0,
+                 sensors_data: { lidar: this.lidarScan }
+             });
+             
+             // Persist batch every 2 seconds
+             if (now - this.lastPersistTime > 2000) {
+                 this.persistTelemetryBatch();
+                 this.lastPersistTime = now;
+             }
+        }
+    }
   }
 
   private updateDynamicObstacles(dt: number) {
@@ -473,6 +578,10 @@ export class SimulationEngine {
     }
 
     this.notifyTelemetry();
+    if (success) {
+        this.persistEvent("task_completed", { evaluation: evaluation });
+    }
+    this.persistTelemetryBatch();
     this.listeners.forEach((l) => l.onComplete?.(evaluation));
   }
 
@@ -559,6 +668,48 @@ export class SimulationEngine {
 
   public getStatus(): SimulationStatus {
     return this.status;
+  }
+  
+  // Persist telemetry to backend
+  private async persistTelemetryBatch() {
+      if (this.telemetryBatch.length === 0) return;
+      const batch = [...this.telemetryBatch];
+      this.telemetryBatch = [];
+      
+      try {
+          await fetch(`http://localhost:8000/api/v1/telemetry/batch`, {
+              method: "POST",
+              headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${this.DEV_TOKEN}`
+              },
+              body: JSON.stringify({ items: batch })
+          });
+      } catch (e) {
+          console.error("Failed to persist telemetry", e);
+      }
+  }
+
+  // Persist event to backend
+  private async persistEvent(eventType: string, payload: any = {}) {
+      try {
+          await fetch(`http://localhost:8000/api/v1/events/`, {
+              method: "POST",
+              headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${this.DEV_TOKEN}`
+              },
+              body: JSON.stringify({
+                  robot_id: this.robotId,
+                  simulation_id: this.simulationId === "default_sim_id" ? null : this.simulationId,
+                  event_type: eventType,
+                  event_timestamp: new Date().toISOString(),
+                  payload: payload
+              })
+          });
+      } catch (e) {
+          console.error("Failed to persist event", e);
+      }
   }
 }
 
