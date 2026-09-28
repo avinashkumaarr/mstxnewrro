@@ -6,6 +6,7 @@ export interface RobotState {
   angularVelocity: number;  // rad/s
   width: number;
   height: number;
+  isActive?: boolean; // Whether the robot is spawned in the world
 }
 
 export interface LidarRay {

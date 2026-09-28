@@ -6,6 +6,7 @@ import { checkCollisions } from "./collision";
 import { simulateLidarScan } from "./lidar";
 import { parseStudentCode, RobotCommand } from "./robotController";
 import { evaluationService } from "@/services/evaluationService";
+import { AStarPlanner } from "./pathPlanner";
 
 export interface SimulationEngineListener {
   onTelemetryUpdate?: (telemetry: TelemetryData) => void;
@@ -43,6 +44,7 @@ export class SimulationEngine {
   private distanceTraveled: number = 0;
   private minClearanceRecorded: number = 999;
   private speedMultiplier: number = 1.0;
+  private activeCollisions: Set<string> = new Set();
 
   private animationFrameId: number | null = null;
   private lastTimestamp: number = 0;
@@ -88,6 +90,7 @@ export class SimulationEngine {
     this.currentWaypointIndex = 0;
     this.currentCommandProgress = 0;
     this.commandQueue = [];
+    this.activeCollisions.clear();
 
     // Reset robot
     this.robot = {
@@ -98,6 +101,7 @@ export class SimulationEngine {
       angularVelocity: 0,
       width: 0.7,
       height: 0.7,
+      isActive: this.challenge.id !== "challenge-00",
     };
 
     // Deep clone waypoints
@@ -143,10 +147,8 @@ export class SimulationEngine {
   public run(studentCode: string) {
     if (!this.challenge) return;
 
-    // Reset run telemetry if completed or idle
-    if (this.status === "COMPLETED" || this.status === "FAILED") {
-      this.reset();
-    }
+    // Reset run telemetry if completed or idle, or ALWAYS reset to clear old code-generated objects
+    this.reset();
     
     // Determine whether to use backend websocket OR local execution
     // (We will use backend websocket exclusively if possible, but keep fallback)
@@ -154,6 +156,53 @@ export class SimulationEngine {
     this.isTickScript = parsed.isTickScript;
     this.commandQueue = [...parsed.commands];
     this.currentCommandProgress = 0;
+
+    // Process world building commands
+    for (const cmd of parsed.worldCommands) {
+      if (cmd.type === "spawn_robot") {
+        this.robot.x = cmd.x || 0;
+        this.robot.y = cmd.y || 0;
+        this.robot.theta = cmd.theta || 0;
+        this.robot.isActive = true;
+      } else if (cmd.type === "add_static_obstacle") {
+        this.obstacles.push({
+          id: cmd.id || `obs-${this.obstacles.length}`,
+          name: cmd.id || "Obstacle",
+          x: cmd.x || 0,
+          y: cmd.y || 0,
+          width: cmd.width || 1,
+          height: cmd.height || 1,
+          colliding: false
+        });
+      } else if (cmd.type === "add_dynamic_obstacle") {
+        this.obstacles.push({
+          id: cmd.id || `dyn-${this.obstacles.length}`,
+          name: cmd.id || "Dynamic",
+          x: cmd.x || 0,
+          y: cmd.y || 0,
+          width: cmd.width || 1,
+          height: cmd.height || 1,
+          isDynamic: true,
+          velocity: { vx: cmd.vx || 0, vy: cmd.vy || 0 },
+          minBound: cmd.minBound || 0,
+          maxBound: cmd.maxBound || 0,
+          colliding: false
+        });
+      } else if (cmd.type === "add_goal") {
+        this.waypoints.push({
+          id: cmd.id || `wp-${this.waypoints.length}`,
+          name: "GOAL",
+          x: cmd.x || 0,
+          y: cmd.y || 0,
+          radius: 0.9,
+          cost: 0,
+          reached: false,
+          isGoal: true
+        });
+      }
+    }
+    this.computePlannedPath();
+    this.updateLidar();
 
     // Connect to websocket
     this.connectWebSocket();
@@ -267,50 +316,59 @@ export class SimulationEngine {
     }
 
     // 3. Integrate robot kinematics
-    this.robot.theta += this.robot.angularVelocity * dt;
-    // Normalize theta [-PI, PI]
-    this.robot.theta = Math.atan2(Math.sin(this.robot.theta), Math.cos(this.robot.theta));
+    if (this.robot.isActive !== false) {
+      this.robot.theta += this.robot.angularVelocity * dt;
+      // Normalize theta [-PI, PI]
+      this.robot.theta = Math.atan2(Math.sin(this.robot.theta), Math.cos(this.robot.theta));
 
-    const dx = this.robot.linearVelocity * Math.cos(this.robot.theta) * dt;
-    const dy = this.robot.linearVelocity * Math.sin(this.robot.theta) * dt;
-    this.robot.x += dx;
-    this.robot.y += dy;
+      const dx = this.robot.linearVelocity * Math.cos(this.robot.theta) * dt;
+      const dy = this.robot.linearVelocity * Math.sin(this.robot.theta) * dt;
+      this.robot.x += dx;
+      this.robot.y += dy;
 
-    const stepDist = Math.sqrt(dx * dx + dy * dy);
-    this.distanceTraveled += stepDist;
+      const stepDist = Math.sqrt(dx * dx + dy * dy);
+      this.distanceTraveled += stepDist;
 
-    if (stepDist > 0.05 || this.executedPath.length === 0) {
-      this.executedPath.push({ x: this.robot.x, y: this.robot.y });
+      if (stepDist > 0.05 || this.executedPath.length === 0) {
+        this.executedPath.push({ x: this.robot.x, y: this.robot.y });
+      }
+
+      // 4. Update LiDAR
+      this.updateLidar();
     }
-
-    // 4. Update LiDAR
-    this.updateLidar();
 
     // 5. Collision checks
-    const colResult = checkCollisions(
-      this.robot,
-      this.obstacles,
-      this.challenge.arenaConfig.arenaWidth,
-      this.challenge.arenaConfig.arenaHeight
-    );
+    if (this.robot.isActive !== false) {
+      const colResult = checkCollisions(
+        this.robot,
+        this.obstacles,
+        this.challenge.arenaConfig.arenaWidth,
+        this.challenge.arenaConfig.arenaHeight
+      );
 
-    if (colResult.minClearance < this.minClearanceRecorded) {
-      this.minClearanceRecorded = colResult.minClearance;
+      if (colResult.minClearance < this.minClearanceRecorded) {
+        this.minClearanceRecorded = colResult.minClearance;
+      }
+
+      // Reset obstacle collision highlights
+      for (const obs of this.obstacles) {
+        obs.colliding = colResult.collidedObstacleIds.includes(obs.id);
+      }
+
+      const newActiveCollisions = new Set<string>();
+      for (const id of colResult.collidedObstacleIds) {
+        newActiveCollisions.add(id);
+        if (!this.activeCollisions.has(id)) {
+          this.collisions += 1;
+          this.persistEvent("collision", { obstacle_id: id });
+          this.listeners.forEach((l) => l.onCollision?.(id));
+        }
+      }
+      this.activeCollisions = newActiveCollisions;
+
+      // 6. Waypoint tracking
+      this.checkWaypoints();
     }
-
-    // Reset obstacle collision highlights
-    for (const obs of this.obstacles) {
-      obs.colliding = colResult.collidedObstacleIds.includes(obs.id);
-    }
-
-    if (colResult.hasCollision) {
-      this.collisions += 1;
-      this.persistEvent("collision", { obstacle_id: colResult.collidedObstacleIds[0] });
-      this.listeners.forEach((l) => l.onCollision?.(colResult.collidedObstacleIds[0]));
-    }
-
-    // 6. Waypoint tracking
-    this.checkWaypoints();
 
     // 7. Check termination (Goal reached or timeout)
     const goalWp = this.waypoints.find((w) => w.isGoal);
@@ -334,22 +392,24 @@ export class SimulationEngine {
         const tick = Math.floor(this.executionTime * 10);
         if (tick % 1 === 0) { // Can be throttled if needed
              const goal = goalWp ? { x: goalWp.x, y: goalWp.y } : null;
-             this.ws.send(JSON.stringify({
-                 type: "telemetry",
-                 pose: {
-                     x: this.robot.x,
-                     y: this.robot.y,
-                     thetaRad: this.robot.theta,
-                 },
-                 lidar: {
-                     front: this.lidarScan.frontDistance,
-                     left: this.lidarScan.leftDistance,
-                     right: this.lidarScan.rightDistance,
-                     rear: this.lidarScan.rearDistance
-                 },
-                 system: { status: this.status },
-                 goal: goal
-             }));
+             if (this.robot.isActive !== false) {
+                 this.ws.send(JSON.stringify({
+                     type: "telemetry",
+                     pose: {
+                         x: this.robot.x,
+                         y: this.robot.y,
+                         thetaRad: this.robot.theta,
+                     },
+                     lidar: {
+                         front: this.lidarScan.frontDistance,
+                         left: this.lidarScan.leftDistance,
+                         right: this.lidarScan.rightDistance,
+                         rear: this.lidarScan.rearDistance
+                     },
+                     system: { status: this.status },
+                     goal: goal
+                 }));
+             }
              
              // Add to persistence batch
              this.telemetryBatch.push({
@@ -365,6 +425,7 @@ export class SimulationEngine {
              });
              
              // Persist batch every 2 seconds
+             const now = Date.now();
              if (now - this.lastPersistTime > 2000) {
                  this.persistTelemetryBatch();
                  this.lastPersistTime = now;
@@ -377,6 +438,7 @@ export class SimulationEngine {
     for (const obs of this.obstacles) {
       if (obs.isDynamic && obs.velocity) {
         if (obs.velocity.vx !== 0 && obs.minBound !== undefined && obs.maxBound !== undefined) {
+          console.log(`[DEBUG] id=${obs.id} dt=${dt} x=${obs.x} vx=${obs.velocity.vx} min=${obs.minBound} max=${obs.maxBound}`);
           obs.x += obs.velocity.vx * dt;
           if (obs.x <= obs.minBound) {
             obs.x = obs.minBound;
@@ -400,8 +462,11 @@ export class SimulationEngine {
     }
   }
 
+  private aStarPlanner = new AStarPlanner(22, 15, 0.25);
+  private pathRecalculationTimer = 0;
+  private currentPath: {x: number, y: number}[] = [];
+
   private stepReactiveNavigation(dt: number) {
-    // Find next unreached waypoint
     const activeWp = this.waypoints.find((w) => !w.reached);
     if (!activeWp) {
       this.robot.linearVelocity = 0;
@@ -409,33 +474,71 @@ export class SimulationEngine {
       return;
     }
 
-    const dx = activeWp.x - this.robot.x;
-    const dy = activeWp.y - this.robot.y;
-    const targetAngle = Math.atan2(dy, dx);
+    const robotRadius = Math.max(this.robot.width, this.robot.height) / 2;
 
+    // Recalculate path periodically (e.g., 5 Hz) for moving obstacles
+    this.pathRecalculationTimer -= dt;
+    if (this.pathRecalculationTimer <= 0 || this.currentPath.length === 0) {
+      this.aStarPlanner.updateObstacles(this.obstacles, robotRadius);
+      this.currentPath = this.aStarPlanner.findPath(
+        { x: this.robot.x, y: this.robot.y },
+        { x: activeWp.x, y: activeWp.y }
+      );
+      this.pathRecalculationTimer = 0.2; // replan every 0.2s
+    }
+
+    if (this.currentPath.length === 0) {
+      // No path found, safe stop
+      this.robot.linearVelocity = 0;
+      this.robot.angularVelocity = 0;
+      return;
+    }
+
+    // Find a lookahead point on the path
+    let targetIdx = 0;
+    for (let i = 0; i < this.currentPath.length; i++) {
+      const p = this.currentPath[i];
+      const dist = Math.hypot(p.x - this.robot.x, p.y - this.robot.y);
+      if (dist > 0.4) {
+        targetIdx = i;
+        break;
+      }
+    }
+    const target = this.currentPath[targetIdx];
+
+    const dx = target.x - this.robot.x;
+    const dy = target.y - this.robot.y;
+    const targetAngle = Math.atan2(dy, dx);
     let angleDiff = targetAngle - this.robot.theta;
     angleDiff = Math.atan2(Math.sin(angleDiff), Math.cos(angleDiff));
 
-    // Obstacle avoidance based on front and side lidar
-    const front = this.lidarScan.frontDistance;
-    const left = this.lidarScan.leftDistance;
-    const right = this.lidarScan.rightDistance;
+    const maxSpeed = this.challenge?.arenaConfig.maxLinearSpeed || 1.1;
+    let desiredLinear = Math.max(0, maxSpeed * Math.max(0.1, Math.cos(angleDiff)));
+    let desiredAngular = Math.max(-2.5, Math.min(2.5, angleDiff * 2.5));
 
-    if (front < 1.35) {
-      // Urgent avoidance: turn away from closer side obstacle
-      this.robot.linearVelocity = 0.25;
-      const turnDir = left > right ? 1.4 : -1.4;
-      this.robot.angularVelocity = turnDir;
-    } else if (front < 2.0) {
-      // Mild deceleration and steering
-      this.robot.linearVelocity = 0.55;
-      const steerAvoidance = left > right ? 0.6 : -0.6;
-      this.robot.angularVelocity = angleDiff * 0.5 + steerAvoidance;
+    // Dynamic obstacle imminent collision override (Safety check)
+    const nextX = this.robot.x + desiredLinear * Math.cos(this.robot.theta) * dt;
+    const nextY = this.robot.y + desiredLinear * Math.sin(this.robot.theta) * dt;
+    
+    // Simulate checkCollisions
+    let imminentCollision = false;
+    for (const obs of this.obstacles) {
+      const closestX = Math.max(obs.x, Math.min(nextX, obs.x + obs.width));
+      const closestY = Math.max(obs.y, Math.min(nextY, obs.y + obs.height));
+      const dist = Math.hypot(nextX - closestX, nextY - closestY);
+      if (dist <= robotRadius + 0.1) {
+        imminentCollision = true;
+        break;
+      }
+    }
+
+    if (imminentCollision) {
+      this.robot.linearVelocity = 0; // Emergency brake
+      // Try to rotate away if possible
+      this.robot.angularVelocity = desiredAngular > 0 ? -1.0 : 1.0;
     } else {
-      // Normal waypoint pursuit
-      const maxSpeed = this.challenge?.arenaConfig.maxLinearSpeed || 1.1;
-      this.robot.linearVelocity = Math.max(0.35, maxSpeed * Math.max(0.2, Math.cos(angleDiff)));
-      this.robot.angularVelocity = Math.max(-1.8, Math.min(1.8, angleDiff * 1.5));
+      this.robot.linearVelocity = desiredLinear;
+      this.robot.angularVelocity = desiredAngular;
     }
   }
 
@@ -535,6 +638,7 @@ export class SimulationEngine {
 
   private updateLidar() {
     if (!this.challenge) return;
+    if (this.robot.isActive === false) return;
     this.lidarScan = simulateLidarScan(
       this.robot,
       this.obstacles,

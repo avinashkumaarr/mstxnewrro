@@ -2,6 +2,73 @@ import { Challenge } from "@/types/challenge";
 
 export const CHALLENGES_CATALOG: Challenge[] = [
   {
+    id: "challenge-00",
+    number: "00",
+    title: "Sandbox Environment",
+    subtitle: "Write code to spawn your robot, add obstacles, and define logic.",
+    objective: "Use code commands to build the world and control the robot.",
+    track: "Obstacle Avoidance",
+    difficulty: "Advanced",
+    estimatedTime: "Open",
+    xp: 0,
+    rewardBadge: "Builder",
+    environment: "Empty Grid",
+    robotType: "Custom",
+    minClearance: 0.35,
+    timeLimit: 3600,
+    evaluationRules: [],
+    arenaConfig: {
+      arenaWidth: 22,
+      arenaHeight: 15,
+      timeLimit: 3600,
+      minClearance: 0.35,
+      maxLinearSpeed: 2.0,
+      presetName: "Sandbox",
+      obstacleDensity: "LOW",
+      noiseModel: "None",
+    },
+    initialRobotPose: { x: 0, y: 0, theta: 0 },
+    waypoints: [],
+    obstacles: [],
+    target: { x: 0, y: 0 },
+    starterCode: `# RoboLedger: Complete mixed-obstacle test
+import math
+
+# 1. Create robot
+spawn_robot(2.0, 2.0, 0.0)
+
+# 2. Create static obstacles
+add_static_obstacle("box1", 5.0, 4.0, 2.0, 2.0)
+add_static_obstacle("box2", 9.0, 7.0, 2.0, 1.5)
+add_static_obstacle("box3", 13.0, 3.0, 1.5, 3.0)
+add_static_obstacle("box4", 6.0, 11.0, 2.0, 1.5)
+add_static_obstacle("box5", 16.0, 9.0, 2.0, 2.0)
+
+# 3. Create moving obstacles
+add_dynamic_obstacle(
+    "dyn1", 7.0, 2.0, 1.0, 1.0,
+    6.0, 10.0, 0.5, 0.0
+)
+
+add_dynamic_obstacle(
+    "dyn2", 11.0, 8.0, 1.0, 1.0,
+    9.0, 14.0, 0.0, 0.5
+)
+
+add_dynamic_obstacle(
+    "dyn3", 15.0, 5.0, 1.0, 1.0,
+    13.0, 18.0, 0.0, 0.4
+)
+
+# 4. Create goal
+add_goal("goal1", 20.0, 12.0)
+
+# 5. Robot navigation controller
+def on_tick(robot, lidar):
+    pass
+`,
+  },
+  {
     id: "challenge-07",
     number: "07",
     title: "Dynamic Obstacle Avoidance & Waypoint Navigation",

@@ -28,3 +28,5 @@ web3/typechain-types/
 
 # OS files
 .DS_Store
+
+*.tsbuildinfo

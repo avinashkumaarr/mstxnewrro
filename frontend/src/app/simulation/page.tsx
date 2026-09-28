@@ -22,7 +22,7 @@ import { ActivityEvent } from "@/types/event";
 
 function RoboticsLabContent() {
   const searchParams = useSearchParams();
-  const challengeId = searchParams?.get("challenge") || "challenge-07";
+  const challengeId = searchParams?.get("challenge") || "challenge-00";
 
   const [challenge, setChallenge] = useState<Challenge | null>(null);
   const [code, setCode] = useState<string>("");

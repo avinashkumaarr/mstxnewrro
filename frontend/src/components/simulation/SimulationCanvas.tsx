@@ -198,13 +198,13 @@ export const SimulationCanvas: React.FC<SimulationCanvasProps> = ({ challenge })
         ctx.fillStyle = isColliding
           ? "rgba(239, 68, 68, 0.3)"
           : isDynamic
-          ? "rgba(244, 63, 94, 0.12)"
+          ? "rgba(251, 191, 36, 0.9)" // Bright amber for dynamic obstacles
           : "rgba(30, 41, 59, 0.65)";
         ctx.fillRect(topLeft.x, topLeft.y, obsW, obsH);
 
         // Border
-        ctx.strokeStyle = isColliding ? "#ef4444" : isDynamic ? "#f43f5e" : "#475569";
-        ctx.lineWidth = isColliding ? 2.5 : 1.5;
+        ctx.strokeStyle = isColliding ? "#ef4444" : isDynamic ? "#f59e0b" : "#475569";
+        ctx.lineWidth = isColliding ? 2.5 : 2.0;
         ctx.strokeRect(topLeft.x, topLeft.y, obsW, obsH);
 
         // Diagonal hazard stripes
@@ -216,7 +216,7 @@ export const SimulationCanvas: React.FC<SimulationCanvasProps> = ({ challenge })
         ctx.strokeStyle = isColliding
           ? "rgba(239, 68, 68, 0.5)"
           : isDynamic
-          ? "rgba(244, 63, 94, 0.3)"
+          ? "rgba(251, 191, 36, 0.5)"
           : "rgba(71, 85, 105, 0.25)";
         ctx.lineWidth = 2;
         for (let s = -obsH; s < obsW + obsH; s += 10) {
@@ -228,8 +228,8 @@ export const SimulationCanvas: React.FC<SimulationCanvasProps> = ({ challenge })
         ctx.restore();
 
         // Name tag
-        ctx.fillStyle = isColliding ? "#ef4444" : isDynamic ? "#f43f5e" : "#94a3b8";
-        ctx.font = "8px monospace";
+        ctx.fillStyle = isColliding ? "#ef4444" : isDynamic ? "#fcd34d" : "#94a3b8";
+        ctx.font = "bold 9px monospace";
         ctx.fillText(obs.name, topLeft.x + 4, topLeft.y + obsH - 4);
       }
 
@@ -259,66 +259,68 @@ export const SimulationCanvas: React.FC<SimulationCanvasProps> = ({ challenge })
       }
 
       // 8. Robot AGV-01
-      const robScreen = toScreen(robot.x, robot.y);
-      const robRadiusPx = (robot.width / 2) * scale;
+      if (robot.isActive !== false) {
+        const robScreen = toScreen(robot.x, robot.y);
+        const robRadiusPx = (robot.width / 2) * scale;
 
-      ctx.save();
-      ctx.translate(robScreen.x, robScreen.y);
-      // Invert angle for canvas Y-flip
-      ctx.rotate(-robot.theta);
+        ctx.save();
+        ctx.translate(robScreen.x, robScreen.y);
+        // Invert angle for canvas Y-flip
+        ctx.rotate(-robot.theta);
 
-      // Left wheel
-      ctx.fillStyle = "#0f172a";
-      ctx.strokeStyle = "#475569";
-      ctx.lineWidth = 1;
-      ctx.fillRect(-robRadiusPx * 0.8, -robRadiusPx - 4, robRadiusPx * 1.6, 4);
-      ctx.strokeRect(-robRadiusPx * 0.8, -robRadiusPx - 4, robRadiusPx * 1.6, 4);
+        // Left wheel
+        ctx.fillStyle = "#0f172a";
+        ctx.strokeStyle = "#475569";
+        ctx.lineWidth = 1;
+        ctx.fillRect(-robRadiusPx * 0.8, -robRadiusPx - 4, robRadiusPx * 1.6, 4);
+        ctx.strokeRect(-robRadiusPx * 0.8, -robRadiusPx - 4, robRadiusPx * 1.6, 4);
 
-      // Right wheel
-      ctx.fillRect(-robRadiusPx * 0.8, robRadiusPx, robRadiusPx * 1.6, 4);
-      ctx.strokeRect(-robRadiusPx * 0.8, robRadiusPx, robRadiusPx * 1.6, 4);
+        // Right wheel
+        ctx.fillRect(-robRadiusPx * 0.8, robRadiusPx, robRadiusPx * 1.6, 4);
+        ctx.strokeRect(-robRadiusPx * 0.8, robRadiusPx, robRadiusPx * 1.6, 4);
 
-      // Robot Chassis
-      ctx.fillStyle = "#0e182a";
-      ctx.strokeStyle = "#00f0ff";
-      ctx.lineWidth = 2;
-      ctx.shadowColor = "#00f0ff";
-      ctx.shadowBlur = 10;
-      ctx.beginPath();
-      ctx.arc(0, 0, robRadiusPx, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-      ctx.shadowBlur = 0;
+        // Robot Chassis
+        ctx.fillStyle = "#0e182a";
+        ctx.strokeStyle = "#00f0ff";
+        ctx.lineWidth = 2;
+        ctx.shadowColor = "#00f0ff";
+        ctx.shadowBlur = 10;
+        ctx.beginPath();
+        ctx.arc(0, 0, robRadiusPx, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.shadowBlur = 0;
 
-      // Heading arrow pointer
-      ctx.fillStyle = "#00f0ff";
-      ctx.beginPath();
-      ctx.moveTo(robRadiusPx + 4, 0);
-      ctx.lineTo(robRadiusPx - 4, -4);
-      ctx.lineTo(robRadiusPx - 4, 4);
-      ctx.closePath();
-      ctx.fill();
+        // Heading arrow pointer
+        ctx.fillStyle = "#00f0ff";
+        ctx.beginPath();
+        ctx.moveTo(robRadiusPx + 4, 0);
+        ctx.lineTo(robRadiusPx - 4, -4);
+        ctx.lineTo(robRadiusPx - 4, 4);
+        ctx.closePath();
+        ctx.fill();
 
-      // Front caster / sensor dome
-      ctx.beginPath();
-      ctx.arc(0, 0, 3.5, 0, Math.PI * 2);
-      ctx.fillStyle = "#38bdf8";
-      ctx.fill();
+        // Front caster / sensor dome
+        ctx.beginPath();
+        ctx.arc(0, 0, 3.5, 0, Math.PI * 2);
+        ctx.fillStyle = "#38bdf8";
+        ctx.fill();
 
-      ctx.restore();
+        ctx.restore();
 
-      // AGV Floating Telemetry Pill above robot
-      ctx.fillStyle = "rgba(10, 14, 26, 0.88)";
-      ctx.strokeStyle = "#1e293b";
-      ctx.lineWidth = 1;
-      const tagText = `AGV-01: v=${robot.linearVelocity.toFixed(2)} m/s | ω=${robot.angularVelocity.toFixed(2)} rad/s`;
-      ctx.font = "bold 9px monospace";
-      const tagW = ctx.measureText(tagText).width + 12;
-      ctx.strokeRect(robScreen.x - tagW / 2, robScreen.y - robRadiusPx - 20, tagW, 16);
-      ctx.fillRect(robScreen.x - tagW / 2, robScreen.y - robRadiusPx - 20, tagW, 16);
+        // AGV Floating Telemetry Pill above robot
+        ctx.fillStyle = "rgba(10, 14, 26, 0.88)";
+        ctx.strokeStyle = "#1e293b";
+        ctx.lineWidth = 1;
+        const tagText = `AGV-01: v=${robot.linearVelocity.toFixed(2)} m/s | ω=${robot.angularVelocity.toFixed(2)} rad/s`;
+        ctx.font = "bold 9px monospace";
+        const tagW = ctx.measureText(tagText).width + 12;
+        ctx.strokeRect(robScreen.x - tagW / 2, robScreen.y - robRadiusPx - 20, tagW, 16);
+        ctx.fillRect(robScreen.x - tagW / 2, robScreen.y - robRadiusPx - 20, tagW, 16);
 
-      ctx.fillStyle = "#00f0ff";
-      ctx.fillText(tagText, robScreen.x - tagW / 2 + 6, robScreen.y - robRadiusPx - 8);
+        ctx.fillStyle = "#00f0ff";
+        ctx.fillText(tagText, robScreen.x - tagW / 2 + 6, robScreen.y - robRadiusPx - 8);
+      }
 
       animationFrameId = requestAnimationFrame(render);
     };
