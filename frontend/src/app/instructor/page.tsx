@@ -1,10 +1,12 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
-import { GraduationCap, Users, ShieldCheck, Award, CheckCircle2, Search } from "lucide-react";
+import { GraduationCap, Users, ShieldCheck, Award, CheckCircle2, Search, PlusCircle } from "lucide-react";
+import { CertificateIssueModal } from "@/components/certificates/CertificateIssueModal";
 
 export default function InstructorPortalPage() {
+  const [issueModalOpen, setIssueModalOpen] = useState(false);
   const students = [
     { name: "Souvik M.", wallet: "0x8x71C...89A4", challengesCleared: 14, avgScore: "94.2%", level: "Level 14", status: "Active" },
     { name: "Alex K.", wallet: "0x39F2A...18C0", challengesCleared: 11, avgScore: "91.0%", level: "Level 11", status: "Active" },
@@ -91,14 +93,29 @@ export default function InstructorPortalPage() {
                     <span className="text-slate-500 text-[10px] block">AVG SCORE</span>
                     <span className="text-emerald-400 font-bold">{st.avgScore}</span>
                   </div>
-                  <button className="px-3 py-1.5 rounded bg-cyan-tech text-black font-bold text-[11px]">
-                    Inspect Telemetry
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button className="px-3 py-1.5 rounded bg-panel hover:bg-slate-800 border border-panel-border text-slate-200 font-bold text-[11px] transition-colors">
+                      Inspect Telemetry
+                    </button>
+                    <button
+                      onClick={() => setIssueModalOpen(true)}
+                      className="px-3 py-1.5 rounded bg-cyan-tech hover:bg-cyan-tech-dark text-black font-bold text-[11px] transition-colors flex items-center gap-1 shadow-cyan-glow"
+                    >
+                      <PlusCircle className="w-3.5 h-3.5" />
+                      <span>Issue Credential</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
           </div>
         </div>
+
+        <CertificateIssueModal
+          isOpen={issueModalOpen}
+          onClose={() => setIssueModalOpen(false)}
+          onIssued={() => setIssueModalOpen(false)}
+        />
       </div>
     </DashboardLayout>
   );
