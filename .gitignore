@@ -30,3 +30,5 @@ web3/typechain-types/
 .DS_Store
 
 *.tsbuildinfo
+*.db
+*.sqlite3

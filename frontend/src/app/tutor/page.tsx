@@ -1,46 +1,100 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
-import { Sparkles, Send, Bot, User, Code2, Play } from "lucide-react";
+import {
+  Sparkles,
+  Send,
+  Bot,
+  User,
+  Play,
+  RotateCcw,
+  Zap,
+  CheckCircle2,
+  Copy,
+  Terminal,
+} from "lucide-react";
+import { copilotService, ChatMessage } from "@/services/copilotService";
+
+const PROMPT_SUGGESTIONS = [
+  "How do I prevent oscillations when dodging moving obstacles?",
+  "Explain heading error normalization in differential drive",
+  "How does RoboLedger verify zero-collision tolerance?",
+  "Write an APF repulsive force snippet for 2D LiDAR",
+];
 
 export default function TutorPage() {
-  const [messages, setMessages] = useState([
+  const [messages, setMessages] = useState<ChatMessage[]>([
     {
       role: "assistant",
       content:
-        "Hello Souvik! I am your AI Robotics Copilot powered by NEWRRO kinematics & MST verification. You are currently working on Challenge #07 (Dynamic Obstacle Avoidance). Would you like help tuning your reactive obstacle repulsion vector or heading error calculation?",
-    },
-    {
-      role: "user",
-      content:
-        "How do I prevent the robot from oscillating when it gets close to two obstacles simultaneously?",
-    },
-    {
-      role: "assistant",
-      content:
-        "Great question! When between two obstacles, standard repulsive potential fields create conflicting vectors that cause chatter or oscillation. In our ROS2 simulation, you can apply an Artificial Potential Field (APF) with a deadband or use Reciprocal Velocity Obstacles (RVO) that project collision cones in velocity space rather than position space. Here's a sample snippet:\n\n```python\n# Smooth obstacle avoidance blending\nif front_dist < 1.0:\n    # Pick clearance direction with largest opening\n    direction = 1.0 if left_dist > right_dist else -1.0\n    robot.set_velocity(linear=0.2, angular=direction * 1.1)\n```\n\nYou can test this directly in the Robotics Lab!",
+        "Hello Souvik! I am your AI Robotics Copilot powered by Google Gemini, NEWRRO kinematics, and MST verification. You are currently working on Challenge #07 (Dynamic Obstacle Avoidance). How can I assist you with kinematics, LiDAR filtering, or zero-collision controller tuning today?",
     },
   ]);
   const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
 
-  const handleSend = () => {
-    if (!input.trim()) return;
-    const userMsg = { role: "user", content: input };
-    setMessages((prev) => [...prev, userMsg]);
-    setInput("");
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
-    setTimeout(() => {
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, loading]);
+
+  const handleSend = async (customPrompt?: string) => {
+    const textToSend = customPrompt || input;
+    if (!textToSend.trim() || loading) return;
+
+    const newMessages: ChatMessage[] = [
+      ...messages,
+      { role: "user", content: textToSend.trim() },
+    ];
+    setMessages(newMessages);
+    if (!customPrompt) setInput("");
+    setLoading(true);
+
+    try {
+      const res = await copilotService.askTutor(newMessages);
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: res.reply,
+        },
+      ]);
+    } catch (err) {
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
           content:
-            "I've analyzed your question against the ROS2 Foxy kinematic model. Ensure your linear velocity is clamped within 1.2 m/s to stay compliant with the zero-collision safety rules!",
+            "Encountered a communication issue with the AI Copilot. Please try again in a few moments.",
         },
       ]);
-    }, 600);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResetChat = () => {
+    setMessages([
+      {
+        role: "assistant",
+        content:
+          "Chat reset. I am ready to help you analyze kinematics, debug LiDAR avoidance vectors, or build your custom robot controllers.",
+      },
+    ]);
+  };
+
+  const handleCopy = (text: string, idx: number) => {
+    navigator.clipboard.writeText(text);
+    setCopiedIdx(idx);
+    setTimeout(() => setCopiedIdx(null), 2000);
   };
 
   return (
@@ -56,7 +110,7 @@ export default function TutorPage() {
               <h1 className="text-lg font-bold text-slate-100 font-mono flex items-center gap-2">
                 <span>AI Robotics Tutor & Copilot</span>
                 <span className="text-[10px] px-2 py-0.5 rounded bg-purple-950 border border-purple-500/30 text-purple-300">
-                  ROS2 FOXY TUNED
+                  GEMINI 2.5 • ROS2 FOXY
                 </span>
               </h1>
               <p className="text-xs text-slate-400">
@@ -65,17 +119,44 @@ export default function TutorPage() {
             </div>
           </div>
 
-          <Link
-            href="/simulation?challenge=challenge-07"
-            className="px-4 py-2 rounded bg-cyan-tech text-black font-bold text-xs font-mono flex items-center gap-1.5 shadow-cyan-glow"
-          >
-            <Play className="w-3.5 h-3.5 fill-black" />
-            <span>Open in Lab</span>
-          </Link>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleResetChat}
+              className="p-2 rounded hover:bg-slate-800/60 text-slate-400 hover:text-slate-200 border border-panel-border transition-colors text-xs flex items-center gap-1 font-mono"
+              title="Reset conversation"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Reset</span>
+            </button>
+            <Link
+              href="/simulation?challenge=challenge-07"
+              className="px-4 py-2 rounded bg-cyan-tech text-black font-bold text-xs font-mono flex items-center gap-1.5 shadow-cyan-glow hover:bg-cyan-tech-dark transition-colors"
+            >
+              <Play className="w-3.5 h-3.5 fill-black" />
+              <span>Open in Lab</span>
+            </Link>
+          </div>
+        </div>
+
+        {/* Suggestion Chips */}
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 shrink-0 no-scrollbar">
+          <span className="text-[10px] font-mono text-slate-500 uppercase flex items-center gap-1">
+            <Zap className="w-3 h-3 text-purple-400" /> Prompts:
+          </span>
+          {PROMPT_SUGGESTIONS.map((sug, i) => (
+            <button
+              key={i}
+              onClick={() => handleSend(sug)}
+              disabled={loading}
+              className="shrink-0 text-[11px] font-mono px-2.5 py-1 rounded bg-panel-elevated hover:bg-purple-950/40 border border-panel-border hover:border-purple-500/30 text-slate-300 hover:text-purple-300 transition-colors"
+            >
+              {sug}
+            </button>
+          ))}
         </div>
 
         {/* Chat message history */}
-        <div className="flex-1 overflow-y-auto space-y-4 p-4 rounded-xl bg-panel border border-panel-border">
+        <div className="flex-1 overflow-y-auto space-y-4 p-4 rounded-xl bg-panel border border-panel-border font-sans">
           {messages.map((m, idx) => (
             <div
               key={idx}
@@ -86,24 +167,55 @@ export default function TutorPage() {
               <div
                 className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
                   m.role === "assistant"
-                    ? "bg-purple-950/80 border border-purple-500/40 text-purple-300"
-                    : "bg-cyan-950/80 border border-cyan-500/40 text-cyan-tech"
+                    ? "bg-purple-950/80 border border-purple-500/40 text-purple-300 shadow-purple-glow"
+                    : "bg-cyan-950/80 border border-cyan-500/40 text-cyan-tech shadow-cyan-glow"
                 }`}
               >
                 {m.role === "assistant" ? <Bot className="w-4 h-4" /> : <User className="w-4 h-4" />}
               </div>
 
               <div
-                className={`p-4 rounded-xl max-w-xl text-xs font-sans leading-relaxed ${
+                className={`group relative p-4 rounded-xl max-w-2xl text-xs leading-relaxed ${
                   m.role === "assistant"
                     ? "bg-panel-elevated border border-panel-border text-slate-200"
                     : "bg-cyan-950/40 border border-cyan-500/30 text-cyan-50"
                 }`}
               >
-                <div className="whitespace-pre-wrap">{m.content}</div>
+                <div className="whitespace-pre-wrap font-sans text-xs">
+                  {m.content}
+                </div>
+
+                {m.role === "assistant" && (
+                  <button
+                    onClick={() => handleCopy(m.content, idx)}
+                    className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 p-1 text-slate-500 hover:text-slate-300 transition-opacity rounded bg-slate-900/80"
+                    title="Copy message"
+                  >
+                    {copiedIdx === idx ? (
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                    ) : (
+                      <Copy className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+                )}
               </div>
             </div>
           ))}
+
+          {/* Thinking / Loading indicator */}
+          {loading && (
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 rounded-lg bg-purple-950/80 border border-purple-500/40 text-purple-300 flex items-center justify-center shrink-0 animate-pulse">
+                <Bot className="w-4 h-4" />
+              </div>
+              <div className="p-3.5 rounded-xl bg-panel-elevated border border-purple-500/30 text-slate-300 text-xs font-mono flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-purple-400 animate-ping" />
+                <span>Copilot is analyzing kinematics with Gemini...</span>
+              </div>
+            </div>
+          )}
+
+          <div ref={messagesEndRef} />
         </div>
 
         {/* Input bar */}
@@ -113,12 +225,14 @@ export default function TutorPage() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSend()}
+            disabled={loading}
             placeholder="Ask about differential drive, A* path planning, LiDAR topics, or Python syntax..."
-            className="flex-1 bg-panel border border-panel-border rounded-lg px-4 py-2.5 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-purple-400 transition-colors"
+            className="flex-1 bg-panel border border-panel-border rounded-lg px-4 py-2.5 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-purple-400 transition-colors disabled:opacity-50"
           />
           <button
-            onClick={handleSend}
-            className="px-5 py-2.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-purple-glow"
+            onClick={() => handleSend()}
+            disabled={loading || !input.trim()}
+            className="px-5 py-2.5 rounded-lg bg-purple-600 hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-xs flex items-center gap-1.5 shadow-purple-glow transition-all active:scale-95"
           >
             <Send className="w-3.5 h-3.5" />
             <span>Ask Tutor</span>

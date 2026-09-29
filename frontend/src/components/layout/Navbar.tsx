@@ -4,11 +4,22 @@ import React from "react";
 import Link from "next/link";
 import { Search, Bell, Shield, Activity, Cpu } from "lucide-react";
 
+import {
+  SignedIn,
+  SignedOut,
+  SignInButton,
+  SignUpButton,
+  UserButton,
+  useUser,
+} from "@clerk/nextjs";
+
 interface NavbarProps {
   currentRoute?: string;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({ currentRoute }) => {
+  const { user } = useUser();
+
   return (
     <header className="h-14 border-b border-panel-border bg-panel/80 backdrop-blur-md px-4 flex items-center justify-between z-30 select-none">
       {/* Left side info */}
@@ -67,16 +78,44 @@ export const Navbar: React.FC<NavbarProps> = ({ currentRoute }) => {
           <span className="absolute top-1 right-1 w-1.5 h-1.5 bg-cyan-tech rounded-full" />
         </button>
 
-        {/* User Profile */}
-        <div className="flex items-center gap-2 pl-2 border-l border-panel-border">
-          <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center text-xs font-bold text-black border border-cyan-300/40 shadow-sm">
-            SM
+        {/* Auth Controls */}
+        <SignedOut>
+          <div className="flex items-center gap-2 pl-2 border-l border-panel-border">
+            <SignInButton mode="modal">
+              <button className="px-2.5 py-1 text-[11px] font-mono font-medium text-slate-300 hover:text-cyan-tech hover:bg-slate-800/60 rounded border border-panel-border transition-colors">
+                Sign In
+              </button>
+            </SignInButton>
+            <SignUpButton mode="modal">
+              <button className="px-2.5 py-1 text-[11px] font-mono font-semibold text-black bg-cyan-tech hover:bg-cyan-tech-dark rounded transition-colors shadow-cyan-glow">
+                Sign Up
+              </button>
+            </SignUpButton>
           </div>
-          <div className="hidden lg:flex flex-col text-left">
-            <span className="text-xs font-medium text-slate-200 leading-tight">Souvik M.</span>
-            <span className="text-[10px] font-mono text-cyan-tech leading-tight">Level 14 Robotics Dev</span>
+        </SignedOut>
+
+        <SignedIn>
+          <div className="flex items-center gap-2 pl-2 border-l border-panel-border">
+            <UserButton
+              afterSignOutUrl="/"
+              appearance={{
+                elements: {
+                  avatarBox: "w-7 h-7 border border-cyan-400/50 shadow-sm",
+                },
+              }}
+            />
+            {user && (
+              <div className="hidden lg:flex flex-col text-left">
+                <span className="text-xs font-medium text-slate-200 leading-tight">
+                  {user.fullName || user.firstName || user.primaryEmailAddress?.emailAddress?.split("@")[0] || "Operator"}
+                </span>
+                <span className="text-[10px] font-mono text-cyan-tech leading-tight">
+                  Verified Pilot
+                </span>
+              </div>
+            )}
           </div>
-        </div>
+        </SignedIn>
       </div>
     </header>
   );
