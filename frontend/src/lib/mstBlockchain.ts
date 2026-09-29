@@ -116,61 +116,81 @@ export const mstBlockchain = {
       };
     }
 
-    try {
-      const accounts = (await provider.request({
-        method: "eth_accounts",
-      })) as string[];
+    const fetchState = async (): Promise<WalletState> => {
+      try {
+        const accounts = (await provider.request({
+          method: "eth_accounts",
+        })) as string[];
 
-      const chainIdHex = (await provider.request({
-        method: "eth_chainId",
-      })) as string;
+        const chainIdHex = (await provider.request({
+          method: "eth_chainId",
+        })) as string;
 
-      const chainId = parseInt(chainIdHex, 16);
-      const isMSTNetwork = chainId === MST_CONFIG.chainIdDec;
+        const chainId = parseInt(chainIdHex, 16);
+        const isMSTNetwork = chainId === MST_CONFIG.chainIdDec;
 
-      if (!accounts || accounts.length === 0) {
+        if (!accounts || accounts.length === 0) {
+          return {
+            address: null,
+            balanceMST: null,
+            chainId,
+            isMSTNetwork,
+            isConnected: false,
+            walletName: this.getWalletName(),
+          };
+        }
+
+        const address = accounts[0];
+        let balanceMST = "0.0000";
+
+        try {
+          const balHex = (await provider.request({
+            method: "eth_getBalance",
+            params: [address, "latest"],
+          })) as string;
+          const balWei = BigInt(balHex);
+          balanceMST = (Number(balWei) / 1e18).toFixed(4);
+        } catch {
+          // Balance fetch fallback
+        }
+
+        return {
+          address,
+          balanceMST,
+          chainId,
+          isMSTNetwork,
+          isConnected: true,
+          walletName: this.getWalletName(),
+        };
+      } catch {
         return {
           address: null,
           balanceMST: null,
-          chainId,
-          isMSTNetwork,
+          chainId: null,
+          isMSTNetwork: false,
           isConnected: false,
           walletName: this.getWalletName(),
         };
       }
+    };
 
-      const address = accounts[0];
-      let balanceMST = "0.0000";
-
-      try {
-        const balHex = (await provider.request({
-          method: "eth_getBalance",
-          params: [address, "latest"],
-        })) as string;
-        const balWei = BigInt(balHex);
-        balanceMST = (Number(balWei) / 1e18).toFixed(4);
-      } catch {
-        // Balance fetch fallback
-      }
-
-      return {
-        address,
-        balanceMST,
-        chainId,
-        isMSTNetwork,
-        isConnected: true,
-        walletName: this.getWalletName(),
-      };
-    } catch {
-      return {
-        address: null,
-        balanceMST: null,
-        chainId: null,
-        isMSTNetwork: false,
-        isConnected: false,
-        walletName: this.getWalletName(),
-      };
-    }
+    return Promise.race([
+      fetchState(),
+      new Promise<WalletState>((resolve) =>
+        setTimeout(
+          () =>
+            resolve({
+              address: null,
+              balanceMST: null,
+              chainId: null,
+              isMSTNetwork: false,
+              isConnected: false,
+              walletName: this.getWalletName(),
+            }),
+          1800
+        )
+      ),
+    ]);
   },
 
   /**
@@ -194,17 +214,27 @@ export const mstBlockchain = {
         method: "eth_requestAccounts",
       })) as string[];
     } catch (reqErr: unknown) {
-      const errMsg = reqErr instanceof Error ? reqErr.message : String(reqErr);
+      const errObj = reqErr as { code?: number; message?: string };
+      const rawMsg = errObj?.message || (reqErr instanceof Error ? reqErr.message : String(reqErr));
       if (
-        errMsg.includes("BridgeKey was updated") ||
-        errMsg.includes("Extension context invalidated") ||
-        errMsg.includes("Refresh this page")
+        errObj?.code === 4001 ||
+        rawMsg.toLowerCase().includes("user rejected") ||
+        rawMsg.toLowerCase().includes("declined")
+      ) {
+        throw new Error(
+          "BridgeKey connection was cancelled. Please approve the connection request in BridgeKey."
+        );
+      }
+      if (
+        rawMsg.includes("BridgeKey was updated") ||
+        rawMsg.includes("Extension context invalidated") ||
+        rawMsg.includes("Refresh this page")
       ) {
         throw new Error(
           "BridgeKey was updated. Refresh this page, then click Connect Wallet again."
         );
       }
-      throw reqErr;
+      throw new Error(rawMsg || "Failed to connect BridgeKey wallet.");
     }
 
     if (!accounts || accounts.length === 0) {
@@ -293,19 +323,69 @@ export const mstBlockchain = {
 
     let txHash: string;
     try {
-      txHash = (await provider.request({
-        method: "eth_sendTransaction",
-        params: [
-          {
-            from: address,
-            to: MST_CONFIG.contractAddress,
-            data: formattedData,
-            value: "0x0",
-          },
-        ],
-      })) as string;
+      // First attempt with explicit gas limit so BridgeKey doesn't stall on RPC estimation
+      try {
+        txHash = (await provider.request({
+          method: "eth_sendTransaction",
+          params: [
+            {
+              from: address,
+              to: MST_CONFIG.contractAddress,
+              data: formattedData,
+              value: "0x0",
+              gas: "0x7530", // 30,000 gas limit ensures quick prompt without estimation delays
+            },
+          ],
+        })) as string;
+      } catch (firstErr: unknown) {
+        const firstErrObj = firstErr as { code?: number; message?: string };
+        const firstMsg =
+          firstErrObj?.message ||
+          (firstErr instanceof Error ? firstErr.message : String(firstErr));
+        // If user cancelled, don't retry
+        if (
+          firstErrObj?.code === 4001 ||
+          firstMsg.toLowerCase().includes("user rejected") ||
+          firstMsg.toLowerCase().includes("declined")
+        ) {
+          throw firstErr;
+        }
+        // Fallback without explicit gas parameter
+        txHash = (await provider.request({
+          method: "eth_sendTransaction",
+          params: [
+            {
+              from: address,
+              to: MST_CONFIG.contractAddress,
+              data: formattedData,
+              value: "0x0",
+            },
+          ],
+        })) as string;
+      }
     } catch (sendErr: unknown) {
-      const errMsg = sendErr instanceof Error ? sendErr.message : String(sendErr);
+      const errObj = sendErr as { code?: number; message?: string };
+      const errMsg =
+        errObj?.message ||
+        (sendErr instanceof Error ? sendErr.message : String(sendErr));
+
+      if (
+        errObj?.code === 4001 ||
+        errMsg.toLowerCase().includes("user rejected") ||
+        errMsg.toLowerCase().includes("declined")
+      ) {
+        throw new Error(
+          "Transaction cancelled: Signing request was cancelled in BridgeKey."
+        );
+      }
+      if (
+        errMsg.toLowerCase().includes("insufficient funds") ||
+        errMsg.includes("-32000")
+      ) {
+        throw new Error(
+          `Insufficient MST balance: Your wallet has ${balanceMST} MST. A small amount of testnet MST is needed for gas (~0.00042 MST).`
+        );
+      }
       if (
         errMsg.includes("BridgeKey was updated") ||
         errMsg.includes("Extension context invalidated") ||
@@ -315,7 +395,7 @@ export const mstBlockchain = {
           "BridgeKey was updated. Refresh this page, then click Connect Wallet again."
         );
       }
-      throw sendErr;
+      throw new Error(errMsg || "BridgeKey failed to send transaction on MST Testnet.");
     }
 
     onStatusUpdate?.(

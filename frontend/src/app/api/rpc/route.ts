@@ -10,6 +10,7 @@ export async function POST(req: NextRequest) {
     const response = await fetch(MST_RPC_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(4000),
       body: JSON.stringify(body),
     });
 

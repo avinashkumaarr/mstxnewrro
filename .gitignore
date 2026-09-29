@@ -1,34 +1,92 @@
+# ========================================================
+# ROBOLAB CHAIN - ROOT GITIGNORE
+# ========================================================
+
 # Dependencies
 node_modules/
 **/node_modules/
+.pnp
+.pnp.js
 
-# Environment variables and secrets
+# Environment variables and local secrets
 .env
 .env.*
 !.env.example
+**/.env
+**/.env.*
+!**/.env.example
 
-# Next.js
+# Next.js and frontend build outputs
 .next/
+frontend/.next/
 out/
+build/
+dist/
+coverage/
+.cache/
+.vercel/
 
-# Python
+# Python virtual environments & bytecode
 __pycache__/
 *.py[cod]
+*$py.class
 .venv/
 venv/
 .pytest_cache/
 
-# Hardhat generated files
+# Hardhat & Web3 compilation artifacts
 web3/artifacts/
 web3/cache/
 web3/typechain-types/
+hardhat-cache/
+artifacts/
 
-# Logs
-*.log
-
-# OS files
-.DS_Store
-
-*.tsbuildinfo
+# Local databases & storage
 *.db
+*.sqlite
 *.sqlite3
+backend/roboledger.db
+
+# Logs and debug files
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Operating System files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+
+# IDE and Editor files
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# Temporary and runtime files
+tmp/
+temp/
+*.tmp
+*.pid
+*.tsbuildinfo
+
+# Certificates, private keys and secrets
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+wallet.json
+keystore/
+mnemonics/
+seed.txt
+credentials.json
+service-account.json
+
+# Clerk local configuration & cache
+.clerk/
+**/.clerk/
