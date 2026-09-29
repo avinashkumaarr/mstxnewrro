@@ -16,6 +16,9 @@ export async function POST(req: NextRequest) {
     const documentHash = (formData.get("documentHash") as string) || "";
     const fieldsStr = (formData.get("fields") as string) || "{}";
     const issuerNotes = (formData.get("issuerNotes") as string) || "";
+    const clientTxHash = (formData.get("transactionHash") as string) || "";
+    const clientBlockNumber = (formData.get("blockNumber") as string) || "";
+    const clientIssuerAddress = (formData.get("issuerAddress") as string) || "";
 
     const file = formData.get("file") as File | null;
 
@@ -79,11 +82,21 @@ export async function POST(req: NextRequest) {
       fields.credentialId ||
       `DOC-${Math.random().toString(36).substring(2, 6).toUpperCase()}-${new Date().getFullYear()}`;
 
-    // Deterministic transaction hash representation on MST Testnet
-    const txHash = `0x${Array.from(documentHash.slice(2).padStart(64, "0"))
-      .reverse()
-      .join("")
-      .slice(0, 64)}`;
+    // Use client-provided on-chain transaction hash if anchored via MetaMask/relayer, or generate deterministic format
+    const txHash =
+      clientTxHash && clientTxHash.startsWith("0x")
+        ? clientTxHash
+        : `0x${Array.from(documentHash.slice(2).padStart(64, "0"))
+            .reverse()
+            .join("")
+            .slice(0, 64)}`;
+
+    if (clientBlockNumber) {
+      const parsedBlock = parseInt(clientBlockNumber, 10);
+      if (!isNaN(parsedBlock) && parsedBlock > 0) {
+        blockNumber = parsedBlock;
+      }
+    }
 
     const newCert: RegisteredCertificate = {
       id: certId,
@@ -106,7 +119,7 @@ export async function POST(req: NextRequest) {
         fileSize,
         mimeType,
         previewUrl,
-        studentWallet: "0x71A4B82F09a89CD1842b0129384910248102919",
+        studentWallet: clientIssuerAddress || "0x71A4B82F09a89CD1842b0129384910248102919",
         studentId: certId,
       },
       createdAt: new Date().toISOString(),

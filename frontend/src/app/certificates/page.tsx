@@ -364,6 +364,7 @@ export default function CertificatesPage() {
                       <DocumentVerificationReport
                         result={verificationResult}
                         onReset={handleClearFile}
+                        onAnchored={loadRegistry}
                       />
                     ) : (
                       <div className="p-6 rounded-2xl bg-panel border border-panel-border text-center space-y-4 font-mono">

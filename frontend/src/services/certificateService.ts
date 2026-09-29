@@ -347,6 +347,15 @@ class CertificateService {
     if (payload.issuerNotes) {
       formData.append("issuerNotes", payload.issuerNotes);
     }
+    if (payload.transactionHash) {
+      formData.append("transactionHash", payload.transactionHash);
+    }
+    if (payload.blockNumber) {
+      formData.append("blockNumber", payload.blockNumber.toString());
+    }
+    if (payload.issuerAddress) {
+      formData.append("issuerAddress", payload.issuerAddress);
+    }
 
     try {
       const response = await fetch(`${API_BASE_URL}/api/certificates/register`, {

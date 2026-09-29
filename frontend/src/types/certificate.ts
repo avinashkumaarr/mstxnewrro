@@ -135,6 +135,9 @@ export interface CertificateRegistrationPayload {
   documentHash: string;
   fields: ExtractedDocumentFields;
   issuerNotes?: string;
+  transactionHash?: string;
+  blockNumber?: number;
+  issuerAddress?: string;
 }
 
 export interface RegistrationResult {

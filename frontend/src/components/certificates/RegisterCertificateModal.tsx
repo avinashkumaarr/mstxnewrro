@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   ExtractedDocumentFields,
   RegistrationResult,
@@ -8,6 +8,7 @@ import {
 } from "@/types/certificate";
 import { calculateFileSHA256, formatFileSize } from "@/lib/crypto";
 import { certificateService } from "@/services/certificateService";
+import { mstBlockchain, WalletState } from "@/lib/mstBlockchain";
 import {
   Award,
   Upload,
@@ -21,6 +22,9 @@ import {
   Check,
   ShieldCheck,
   Sparkles,
+  Wallet,
+  Fuel,
+  Flame,
 } from "lucide-react";
 
 interface RegisterCertificateModalProps {
@@ -49,12 +53,35 @@ export const RegisterCertificateModal: React.FC<RegisterCertificateModalProps> =
   const [credentialId, setCredentialId] = useState("");
   const [issuerNotes, setIssuerNotes] = useState("");
 
+  // Blockchain & Gas settings
+  const [anchorMethod, setAnchorMethod] = useState<"metamask" | "relayer">("relayer");
+  const [wallet, setWallet] = useState<WalletState>({
+    address: null,
+    balanceMST: null,
+    chainId: null,
+    isMSTNetwork: false,
+    isConnected: false,
+  });
+  const [gasFeePaid, setGasFeePaid] = useState<string | null>(null);
+
   // Submission state
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitStep, setSubmitStep] = useState<string>("");
   const [result, setResult] = useState<RegistrationResult | null>(null);
   const [copiedHash, setCopiedHash] = useState(false);
   const [copiedTx, setCopiedTx] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      const isInstalled = mstBlockchain.isWalletInstalled();
+      if (isInstalled) {
+        setAnchorMethod("metamask");
+        mstBlockchain.getWalletState().then(setWallet).catch(() => {});
+      } else {
+        setAnchorMethod("relayer");
+      }
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -110,7 +137,36 @@ export const RegisterCertificateModal: React.FC<RegisterCertificateModalProps> =
     if (!file || !metadata) return;
 
     setIsSubmitting(true);
-    setSubmitStep("Submitting registration payload to backend & MST Blockchain...");
+    let onChainTxHash: string | undefined = undefined;
+    let onChainBlockNumber: number | undefined = undefined;
+    let onChainSender: string | undefined = undefined;
+
+    if (anchorMethod === "metamask") {
+      try {
+        setSubmitStep("Connecting to MetaMask & switching to MST Testnet (Chain ID 91562037)...");
+        const onChainRes = await mstBlockchain.anchorDocumentWithRealGas(
+          metadata.sha256,
+          (status) => setSubmitStep(status)
+        );
+        onChainTxHash = onChainRes.transactionHash;
+        onChainBlockNumber = onChainRes.blockNumber;
+        onChainSender = onChainRes.senderAddress;
+        setGasFeePaid(onChainRes.gasFeeMST);
+      } catch (err: unknown) {
+        setIsSubmitting(false);
+        const errMsg =
+          err instanceof Error
+            ? err.message
+            : "MetaMask transaction failed or was rejected in wallet.";
+        setResult({
+          success: false,
+          errorMessage: errMsg,
+        });
+        return;
+      }
+    }
+
+    setSubmitStep("Anchoring cryptographic hash into MST registry...");
 
     const fields: ExtractedDocumentFields = {
       certificateTitle: title.trim() || file.name,
@@ -127,6 +183,9 @@ export const RegisterCertificateModal: React.FC<RegisterCertificateModalProps> =
       documentHash: metadata.sha256,
       fields,
       issuerNotes: issuerNotes.trim() || undefined,
+      transactionHash: onChainTxHash,
+      blockNumber: onChainBlockNumber,
+      issuerAddress: onChainSender,
     });
 
     setResult(res);
@@ -250,6 +309,18 @@ export const RegisterCertificateModal: React.FC<RegisterCertificateModalProps> =
                 <div className="flex items-center justify-between p-3 rounded-lg bg-black/40 border border-panel-border text-[11px]">
                   <span className="text-slate-400">BLOCK NUMBER:</span>
                   <span className="text-slate-100 font-bold">#{result.blockNumber}</span>
+                </div>
+              )}
+
+              {gasFeePaid && (
+                <div className="flex items-center justify-between p-3 rounded-lg bg-black/40 border border-emerald-500/30 text-[11px]">
+                  <span className="text-slate-400 flex items-center gap-1.5">
+                    <Fuel className="w-3.5 h-3.5 text-amber-400" />
+                    <span>REAL MST GAS DEDUCTED:</span>
+                  </span>
+                  <span className="text-emerald-400 font-bold font-mono">
+                    ~{gasFeePaid} MST
+                  </span>
                 </div>
               )}
             </div>
@@ -449,6 +520,90 @@ export const RegisterCertificateModal: React.FC<RegisterCertificateModalProps> =
               </div>
             </div>
 
+            {/* Blockchain Anchor & Gas Settlement Protocol Selector */}
+            <div className="p-4 rounded-xl bg-panel-elevated/70 border border-panel-border space-y-3 font-mono">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-cyan-tech font-bold uppercase tracking-wider flex items-center gap-1.5">
+                  <Fuel className="w-3.5 h-3.5 text-amber-400" />
+                  <span>MST TESTNET GAS & SETTLEMENT PROTOCOL</span>
+                </span>
+                <span className="text-[10px] text-slate-500">CHAIN ID: 91562037</span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Option 1: MetaMask Real MST Gas */}
+                <div
+                  onClick={() => setAnchorMethod("metamask")}
+                  className={`p-3 rounded-xl border text-xs cursor-pointer transition-all space-y-1.5 ${
+                    anchorMethod === "metamask"
+                      ? "border-cyan-500 bg-cyan-950/20 text-slate-100 shadow-sm"
+                      : "border-panel-border bg-black/40 text-slate-400 hover:border-slate-700"
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold flex items-center gap-1.5 text-slate-200">
+                      <Wallet className="w-3.5 h-3.5 text-amber-400" />
+                      <span>MetaMask (Real MST Gas)</span>
+                    </span>
+                    <span
+                      className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center ${
+                        anchorMethod === "metamask"
+                          ? "border-cyan-400 bg-cyan-400"
+                          : "border-slate-600"
+                      }`}
+                    >
+                      {anchorMethod === "metamask" && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-black" />
+                      )}
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-slate-400 leading-relaxed font-sans">
+                    Deducts real MST gas (~0.00042 MST) directly from your connected wallet on MST Testnet.
+                  </p>
+                  {wallet.isConnected && (
+                    <div className="pt-1.5 border-t border-panel-border text-[9px] text-emerald-400 flex items-center justify-between">
+                      <span className="truncate max-w-[130px]">{wallet.address}</span>
+                      <span className="font-bold">{wallet.balanceMST} MST</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Option 2: Authority Relayer */}
+                <div
+                  onClick={() => setAnchorMethod("relayer")}
+                  className={`p-3 rounded-xl border text-xs cursor-pointer transition-all space-y-1.5 ${
+                    anchorMethod === "relayer"
+                      ? "border-purple-500 bg-purple-950/20 text-slate-100 shadow-sm"
+                      : "border-panel-border bg-black/40 text-slate-400 hover:border-slate-700"
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold flex items-center gap-1.5 text-slate-200">
+                      <ShieldCheck className="w-3.5 h-3.5 text-purple-400" />
+                      <span>Authority Relayer</span>
+                    </span>
+                    <span
+                      className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center ${
+                        anchorMethod === "relayer"
+                          ? "border-purple-400 bg-purple-400"
+                          : "border-slate-600"
+                      }`}
+                    >
+                      {anchorMethod === "relayer" && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-black" />
+                      )}
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-slate-400 leading-relaxed font-sans">
+                    Attestation gas sponsored by RoboLab decentralized authority node.
+                  </p>
+                  <div className="pt-1.5 border-t border-panel-border text-[9px] text-purple-300">
+                    Sponsorship: Active
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* Action Buttons */}
             <div className="flex items-center justify-end gap-3 pt-3 border-t border-panel-border">
               <button
@@ -467,12 +622,17 @@ export const RegisterCertificateModal: React.FC<RegisterCertificateModalProps> =
                 {isSubmitting ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Registering to Blockchain...</span>
+                    <span>Anchoring to MST Blockchain...</span>
+                  </>
+                ) : anchorMethod === "metamask" ? (
+                  <>
+                    <Wallet className="w-4 h-4" />
+                    <span>Sign & Deduct MST Gas (MetaMask)</span>
                   </>
                 ) : (
                   <>
                     <ShieldCheck className="w-4 h-4" />
-                    <span>Anchor to MST Testnet</span>
+                    <span>Anchor via Authority Relayer</span>
                   </>
                 )}
               </button>
