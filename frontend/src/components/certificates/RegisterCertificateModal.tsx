@@ -54,7 +54,7 @@ export const RegisterCertificateModal: React.FC<RegisterCertificateModalProps> =
   const [issuerNotes, setIssuerNotes] = useState("");
 
   // Blockchain & Gas settings
-  const [anchorMethod, setAnchorMethod] = useState<"metamask" | "relayer">("relayer");
+  const [anchorMethod, setAnchorMethod] = useState<"bridgekey" | "relayer">("relayer");
   const [wallet, setWallet] = useState<WalletState>({
     address: null,
     balanceMST: null,
@@ -75,7 +75,7 @@ export const RegisterCertificateModal: React.FC<RegisterCertificateModalProps> =
     if (isOpen) {
       const isInstalled = mstBlockchain.isWalletInstalled();
       if (isInstalled) {
-        setAnchorMethod("metamask");
+        setAnchorMethod("bridgekey");
         mstBlockchain.getWalletState().then(setWallet).catch(() => {});
       } else {
         setAnchorMethod("relayer");
@@ -141,9 +141,9 @@ export const RegisterCertificateModal: React.FC<RegisterCertificateModalProps> =
     let onChainBlockNumber: number | undefined = undefined;
     let onChainSender: string | undefined = undefined;
 
-    if (anchorMethod === "metamask") {
+    if (anchorMethod === "bridgekey") {
       try {
-        setSubmitStep("Connecting to MetaMask & switching to MST Testnet (Chain ID 91562037)...");
+        setSubmitStep("Connecting to BridgeKey & switching to MST Testnet (Chain ID 91562037)...");
         const onChainRes = await mstBlockchain.anchorDocumentWithRealGas(
           metadata.sha256,
           (status) => setSubmitStep(status)
@@ -157,7 +157,7 @@ export const RegisterCertificateModal: React.FC<RegisterCertificateModalProps> =
         const errMsg =
           err instanceof Error
             ? err.message
-            : "MetaMask transaction failed or was rejected in wallet.";
+            : "BridgeKey transaction failed or was rejected in wallet.";
         setResult({
           success: false,
           errorMessage: errMsg,
@@ -430,12 +430,25 @@ export const RegisterCertificateModal: React.FC<RegisterCertificateModalProps> =
 
             {/* Error banner if submission failed */}
             {result?.success === false && (
-              <div className="p-3.5 rounded-xl bg-rose-950/40 border border-rose-500/50 flex items-start gap-2.5 text-rose-300 text-xs">
-                <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5 text-rose-400" />
-                <div>
-                  <span className="font-bold block">Registration Error</span>
-                  <span>{result.errorMessage || "Backend rejected the registration request."}</span>
+              <div className="p-3.5 rounded-xl bg-rose-950/40 border border-rose-500/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-rose-300 text-xs">
+                <div className="flex items-start gap-2.5">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5 text-rose-400" />
+                  <div>
+                    <span className="font-bold block">Registration Error</span>
+                    <span>{result.errorMessage || "Backend rejected the registration request."}</span>
+                  </div>
                 </div>
+                {(result.errorMessage?.toLowerCase().includes("refresh") ||
+                  result.errorMessage?.toLowerCase().includes("updated") ||
+                  result.errorMessage?.toLowerCase().includes("bridgekey")) && (
+                  <button
+                    type="button"
+                    onClick={() => window.location.reload()}
+                    className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs whitespace-nowrap self-start sm:self-center transition-colors"
+                  >
+                    Refresh Page Now
+                  </button>
+                )}
               </div>
             )}
 
@@ -531,11 +544,11 @@ export const RegisterCertificateModal: React.FC<RegisterCertificateModalProps> =
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {/* Option 1: MetaMask Real MST Gas */}
+                {/* Option 1: BridgeKey Real MST Gas */}
                 <div
-                  onClick={() => setAnchorMethod("metamask")}
+                  onClick={() => setAnchorMethod("bridgekey")}
                   className={`p-3 rounded-xl border text-xs cursor-pointer transition-all space-y-1.5 ${
-                    anchorMethod === "metamask"
+                    anchorMethod === "bridgekey"
                       ? "border-cyan-500 bg-cyan-950/20 text-slate-100 shadow-sm"
                       : "border-panel-border bg-black/40 text-slate-400 hover:border-slate-700"
                   }`}
@@ -543,22 +556,22 @@ export const RegisterCertificateModal: React.FC<RegisterCertificateModalProps> =
                   <div className="flex items-center justify-between">
                     <span className="font-bold flex items-center gap-1.5 text-slate-200">
                       <Wallet className="w-3.5 h-3.5 text-amber-400" />
-                      <span>MetaMask (Real MST Gas)</span>
+                      <span>BridgeKey (Real MST Gas)</span>
                     </span>
                     <span
                       className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center ${
-                        anchorMethod === "metamask"
+                        anchorMethod === "bridgekey"
                           ? "border-cyan-400 bg-cyan-400"
                           : "border-slate-600"
                       }`}
                     >
-                      {anchorMethod === "metamask" && (
+                      {anchorMethod === "bridgekey" && (
                         <span className="w-1.5 h-1.5 rounded-full bg-black" />
                       )}
                     </span>
                   </div>
                   <p className="text-[10px] text-slate-400 leading-relaxed font-sans">
-                    Deducts real MST gas (~0.00042 MST) directly from your connected wallet on MST Testnet.
+                    Deducts real MST gas (~0.00042 MST) directly from your connected BridgeKey wallet on MST Testnet.
                   </p>
                   {wallet.isConnected && (
                     <div className="pt-1.5 border-t border-panel-border text-[9px] text-emerald-400 flex items-center justify-between">
@@ -624,10 +637,10 @@ export const RegisterCertificateModal: React.FC<RegisterCertificateModalProps> =
                     <Loader2 className="w-4 h-4 animate-spin" />
                     <span>Anchoring to MST Blockchain...</span>
                   </>
-                ) : anchorMethod === "metamask" ? (
+                ) : anchorMethod === "bridgekey" ? (
                   <>
                     <Wallet className="w-4 h-4" />
-                    <span>Sign & Deduct MST Gas (MetaMask)</span>
+                    <span>Sign & Deduct MST Gas (BridgeKey)</span>
                   </>
                 ) : (
                   <>

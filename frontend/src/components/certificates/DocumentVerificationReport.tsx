@@ -45,7 +45,7 @@ export const DocumentVerificationReport: React.FC<DocumentVerificationReportProp
     isConnected: false,
   });
   const [isAnchoring, setIsAnchoring] = useState(false);
-  const [anchorMode, setAnchorMode] = useState<"metamask" | "relayer" | null>(null);
+  const [anchorMode, setAnchorMode] = useState<"bridgekey" | "relayer" | null>(null);
   const [anchorStatusMsg, setAnchorStatusMsg] = useState<string>("");
   const [anchorError, setAnchorError] = useState<string | null>(null);
   const [anchoredSuccess, setAnchoredSuccess] = useState<OnChainAnchorResult | null>(null);
@@ -63,21 +63,21 @@ export const DocumentVerificationReport: React.FC<DocumentVerificationReportProp
     setTimeout(() => setCopiedHash(null), 2000);
   };
 
-  const handleAnchorWithMetaMask = async () => {
+  const handleAnchorWithBridgeKey = async () => {
     setIsAnchoring(true);
-    setAnchorMode("metamask");
+    setAnchorMode("bridgekey");
     setAnchorError(null);
-    setAnchorStatusMsg("Connecting to MetaMask & MST Testnet...");
+    setAnchorStatusMsg("Connecting to BridgeKey & MST Testnet...");
 
     try {
       if (!mstBlockchain.isWalletInstalled()) {
         throw new Error(
-          "MetaMask was not detected in this browser. Please install MetaMask to deduct real MST gas, or use the Authority Relayer."
+          "BridgeKey wallet was not detected. Please install or enable the BridgeKey extension in your browser, or use the Authority Relayer."
         );
       }
 
       // Execute real on-chain transaction on MST Testnet (Chain ID 91562037)
-      // This deducts real MST gas from user's wallet!
+      // This deducts real MST gas from BridgeKey wallet!
       const anchorRes = await mstBlockchain.anchorDocumentWithRealGas(
         currentResult.document.sha256,
         (status) => setAnchorStatusMsg(status)
@@ -382,13 +382,13 @@ export const DocumentVerificationReport: React.FC<DocumentVerificationReportProp
 
           {/* Anchoring Options Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {/* Option 1: MetaMask Real Gas Deduction */}
+            {/* Option 1: BridgeKey Real Gas Deduction */}
             <div className="p-4 rounded-xl bg-black/50 border border-cyan-500/40 space-y-3 flex flex-col justify-between hover:border-cyan-400 transition-colors">
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-slate-100 flex items-center gap-1.5">
                     <Wallet className="w-4 h-4 text-cyan-tech" />
-                    <span>Anchor with MetaMask</span>
+                    <span>Anchor with BridgeKey</span>
                   </span>
                   <span className="text-[9px] font-bold px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-500/30 flex items-center gap-1">
                     <Flame className="w-3 h-3 text-orange-400" />
@@ -396,13 +396,13 @@ export const DocumentVerificationReport: React.FC<DocumentVerificationReportProp
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-400 font-sans leading-relaxed">
-                  Pops up your MetaMask wallet on MST Testnet to sign and broadcast a live transaction. Real MST gas is deducted from your wallet!
+                  Pops up your BridgeKey wallet on MST Testnet to sign and broadcast a live transaction. Real MST gas is deducted from your wallet!
                 </p>
 
                 {walletState.isConnected && walletState.address ? (
                   <div className="text-[11px] text-slate-300 bg-slate-900/90 p-2.5 rounded-lg border border-panel-border space-y-0.5">
                     <div className="flex justify-between">
-                      <span className="text-slate-400">Account:</span>
+                      <span className="text-slate-400">BridgeKey:</span>
                       <span className="text-cyan-tech font-bold">
                         {walletState.address.slice(0, 6)}...{walletState.address.slice(-4)}
                       </span>
@@ -414,28 +414,28 @@ export const DocumentVerificationReport: React.FC<DocumentVerificationReportProp
                   </div>
                 ) : (
                   <div className="text-[10px] text-slate-400 bg-slate-950/60 p-2 rounded border border-panel-border">
-                    Connects your wallet and prompts for MST Testnet network confirmation.
+                    Connects your BridgeKey wallet and prompts for MST Testnet network confirmation.
                   </div>
                 )}
               </div>
 
               <button
-                onClick={handleAnchorWithMetaMask}
+                onClick={handleAnchorWithBridgeKey}
                 disabled={isAnchoring}
                 className="w-full py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-black font-bold text-xs font-mono shadow-cyan-glow flex items-center justify-center gap-2 transition-all disabled:opacity-50"
               >
-                {isAnchoring && anchorMode === "metamask" ? (
+                {isAnchoring && anchorMode === "bridgekey" ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Broadcasting to MST...</span>
+                    <span>Broadcasting with BridgeKey...</span>
                   </>
                 ) : (
                   <>
                     <ShieldCheck className="w-4 h-4" />
                     <span>
                       {walletState.isConnected
-                        ? "Sign & Pay Gas on MST Testnet"
-                        : "Connect Wallet & Anchor"}
+                        ? "Sign & Pay Gas with BridgeKey"
+                        : "Connect BridgeKey & Anchor"}
                     </span>
                   </>
                 )}
@@ -492,9 +492,24 @@ export const DocumentVerificationReport: React.FC<DocumentVerificationReportProp
 
           {/* Error Notice */}
           {anchorError && (
-            <div className="p-3.5 rounded-xl bg-rose-950/70 border border-rose-500/50 text-rose-300 text-xs flex items-center gap-3">
-              <AlertTriangle className="w-4 h-4 text-rose-400 flex-shrink-0" />
-              <span>{anchorError}</span>
+            <div className="p-4 rounded-xl bg-rose-950/70 border border-rose-500/50 text-rose-300 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 font-mono">
+              <div className="flex items-start gap-2.5">
+                <AlertTriangle className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5" />
+                <div className="space-y-0.5">
+                  <span className="font-bold text-white block">BridgeKey Notification</span>
+                  <span className="text-rose-200">{anchorError}</span>
+                </div>
+              </div>
+              {(anchorError.toLowerCase().includes("refresh") ||
+                anchorError.toLowerCase().includes("updated") ||
+                anchorError.toLowerCase().includes("bridgekey")) && (
+                <button
+                  onClick={() => window.location.reload()}
+                  className="px-3.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs shadow-md whitespace-nowrap self-start sm:self-center transition-colors flex items-center gap-1.5"
+                >
+                  <span>Refresh Page Now</span>
+                </button>
+              )}
             </div>
           )}
         </div>

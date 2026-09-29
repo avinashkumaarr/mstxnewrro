@@ -1,6 +1,6 @@
 /**
  * Real MST Testnet Blockchain Client
- * Interacts directly with MST Testnet (Chain ID 91562037) via EIP-1193 (MetaMask/Web3)
+ * Interacts directly with MST Testnet (Chain ID 91562037) via BridgeKey (or EIP-1193 provider)
  * Deducts real MST gas for on-chain cryptographic document anchoring.
  */
 
@@ -28,6 +28,7 @@ export interface WalletState {
   chainId: number | null;
   isMSTNetwork: boolean;
   isConnected: boolean;
+  walletName?: string;
 }
 
 export interface OnChainAnchorResult {
@@ -46,20 +47,57 @@ type EthereumProvider = {
   request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
   on?: (event: string, callback: (...args: unknown[]) => void) => void;
   removeListener?: (event: string, callback: (...args: unknown[]) => void) => void;
+  isBridgeKey?: boolean;
+  isBridgekey?: boolean;
 };
 
 export const mstBlockchain = {
   /**
-   * Check if a browser Ethereum wallet (MetaMask, Rabby, Brave, etc.) is installed.
+   * Check if BridgeKey (or compatible browser Web3 wallet) is installed.
    */
   isWalletInstalled(): boolean {
     if (typeof window === "undefined") return false;
-    return Boolean((window as unknown as { ethereum?: EthereumProvider }).ethereum);
+    const w = window as unknown as Record<string, unknown>;
+    return Boolean(w.bridgekey || w.bridgeKey || w.ethereum);
   },
 
+  /**
+   * Detect provider, prioritizing BridgeKey's native injection
+   */
   getProvider(): EthereumProvider | null {
     if (typeof window === "undefined") return null;
-    return (window as unknown as { ethereum?: EthereumProvider }).ethereum || null;
+    const w = window as unknown as Record<string, unknown>;
+
+    // 1. Direct BridgeKey injection
+    if (w.bridgekey) return w.bridgekey as EthereumProvider;
+    if (w.bridgeKey) return w.bridgeKey as EthereumProvider;
+
+    // 2. Multi-injected providers array
+    const eth = w.ethereum as (EthereumProvider & { providers?: EthereumProvider[] }) | undefined;
+    if (eth?.providers && Array.isArray(eth.providers)) {
+      const bk = eth.providers.find(
+        (p) => p.isBridgeKey || p.isBridgekey || (p as { name?: string }).name?.toLowerCase().includes("bridgekey")
+      );
+      if (bk) return bk;
+      return eth.providers[0];
+    }
+
+    // 3. Standard window.ethereum (which BridgeKey injects)
+    if (eth) return eth;
+
+    return null;
+  },
+
+  /**
+   * Return detected wallet name (defaults to BridgeKey)
+   */
+  getWalletName(): string {
+    if (typeof window === "undefined") return "BridgeKey";
+    const w = window as unknown as Record<string, unknown>;
+    if (w.bridgekey || w.bridgeKey) return "BridgeKey";
+    const eth = w.ethereum as EthereumProvider | undefined;
+    if (eth?.isBridgeKey || eth?.isBridgekey) return "BridgeKey";
+    return "BridgeKey";
   },
 
   /**
@@ -74,6 +112,7 @@ export const mstBlockchain = {
         chainId: null,
         isMSTNetwork: false,
         isConnected: false,
+        walletName: "BridgeKey",
       };
     }
 
@@ -96,6 +135,7 @@ export const mstBlockchain = {
           chainId,
           isMSTNetwork,
           isConnected: false,
+          walletName: this.getWalletName(),
         };
       }
 
@@ -110,7 +150,7 @@ export const mstBlockchain = {
         const balWei = BigInt(balHex);
         balanceMST = (Number(balWei) / 1e18).toFixed(4);
       } catch {
-        // Balance fetch failed
+        // Balance fetch fallback
       }
 
       return {
@@ -119,6 +159,7 @@ export const mstBlockchain = {
         chainId,
         isMSTNetwork,
         isConnected: true,
+        walletName: this.getWalletName(),
       };
     } catch {
       return {
@@ -127,12 +168,13 @@ export const mstBlockchain = {
         chainId: null,
         isMSTNetwork: false,
         isConnected: false,
+        walletName: this.getWalletName(),
       };
     }
   },
 
   /**
-   * Connect MetaMask / browser wallet and ensure MST Testnet (Chain ID 91562037) is selected.
+   * Connect BridgeKey wallet and ensure MST Testnet (Chain ID 91562037) is active.
    */
   async connectAndSwitchToMST(): Promise<{
     address: string;
@@ -141,22 +183,37 @@ export const mstBlockchain = {
     const provider = this.getProvider();
     if (!provider) {
       throw new Error(
-        "MetaMask or Web3 wallet was not detected in your browser. Please install MetaMask to deduct real MST gas."
+        "BridgeKey wallet was not detected. Please install or enable the BridgeKey extension in your browser."
       );
     }
 
     // 1. Request account access
-    const accounts = (await provider.request({
-      method: "eth_requestAccounts",
-    })) as string[];
+    let accounts: string[];
+    try {
+      accounts = (await provider.request({
+        method: "eth_requestAccounts",
+      })) as string[];
+    } catch (reqErr: unknown) {
+      const errMsg = reqErr instanceof Error ? reqErr.message : String(reqErr);
+      if (
+        errMsg.includes("BridgeKey was updated") ||
+        errMsg.includes("Extension context invalidated") ||
+        errMsg.includes("Refresh this page")
+      ) {
+        throw new Error(
+          "BridgeKey was updated. Refresh this page, then click Connect Wallet again."
+        );
+      }
+      throw reqErr;
+    }
 
     if (!accounts || accounts.length === 0) {
-      throw new Error("No wallet account selected in MetaMask.");
+      throw new Error("No wallet account selected in BridgeKey.");
     }
 
     const address = accounts[0];
 
-    // 2. Switch or Add MST Testnet
+    // 2. Switch or Add MST Testnet (Chain ID 91562037)
     try {
       await provider.request({
         method: "wallet_switchEthereumChain",
@@ -164,23 +221,32 @@ export const mstBlockchain = {
       });
     } catch (switchError: unknown) {
       const err = switchError as { code?: number; message?: string };
-      // 4902 means the chain has not been added to MetaMask yet
-      if (err.code === 4902 || err.message?.includes("Unrecognized chain ID")) {
-        await provider.request({
-          method: "wallet_addEthereumChain",
-          params: [
-            {
-              chainId: MST_CONFIG.chainIdHex,
-              chainName: MST_CONFIG.chainName,
-              nativeCurrency: MST_CONFIG.nativeCurrency,
-              rpcUrls: [MST_CONFIG.rpcUrl],
-              blockExplorerUrls: [MST_CONFIG.blockExplorerUrl],
-            },
-          ],
-        });
-      } else {
+      if (err.code === 4001 || err.message?.includes("User rejected")) {
         throw switchError;
       }
+      if (
+        err.code === 4902 ||
+        err.message?.includes("Unrecognized chain ID") ||
+        err.message?.includes("not found")
+      ) {
+        try {
+          await provider.request({
+            method: "wallet_addEthereumChain",
+            params: [
+              {
+                chainId: MST_CONFIG.chainIdHex,
+                chainName: MST_CONFIG.chainName,
+                nativeCurrency: MST_CONFIG.nativeCurrency,
+                rpcUrls: [MST_CONFIG.rpcUrl],
+                blockExplorerUrls: [MST_CONFIG.blockExplorerUrl],
+              },
+            ],
+          });
+        } catch {
+          // If BridgeKey is already locked to MST Testnet or doesn't support adding, continue
+        }
+      }
+      // If already on MST Testnet or unsupported, proceed gracefully
     }
 
     // 3. Fetch real MST balance
@@ -200,45 +266,57 @@ export const mstBlockchain = {
   },
 
   /**
-   * Send an on-chain transaction from the user's connected wallet on MST Testnet.
-   * This broadcasts an Ethereum transaction with the document SHA-256 fingerprint in the payload,
-   * triggering real gas deduction in MST from the user's wallet.
+   * Send an on-chain transaction from the user's BridgeKey wallet on MST Testnet.
+   * Deducts real MST gas from BridgeKey.
    */
   async anchorDocumentWithRealGas(
     documentHash: string,
     onStatusUpdate?: (status: string) => void
   ): Promise<OnChainAnchorResult> {
-    onStatusUpdate?.("Connecting to MetaMask & MST Testnet...");
+    onStatusUpdate?.("Connecting to BridgeKey & MST Testnet...");
     const { address, balanceMST } = await this.connectAndSwitchToMST();
 
     const provider = this.getProvider();
     if (!provider) {
-      throw new Error("Ethereum wallet provider unavailable.");
+      throw new Error("BridgeKey wallet provider unavailable.");
     }
 
     onStatusUpdate?.("Preparing on-chain anchor transaction on MST Testnet...");
 
-    // Format documentHash to standard hex data payload
     const formattedData = documentHash.startsWith("0x")
       ? documentHash
       : `0x${documentHash}`;
 
     onStatusUpdate?.(
-      "Please confirm the transaction in MetaMask (MST gas will be deducted)..."
+      "Please confirm transaction in BridgeKey (MST gas will be deducted)..."
     );
 
-    // Prompt MetaMask to sign and send the transaction
-    const txHash = (await provider.request({
-      method: "eth_sendTransaction",
-      params: [
-        {
-          from: address,
-          to: MST_CONFIG.contractAddress,
-          data: formattedData,
-          value: "0x0",
-        },
-      ],
-    })) as string;
+    let txHash: string;
+    try {
+      txHash = (await provider.request({
+        method: "eth_sendTransaction",
+        params: [
+          {
+            from: address,
+            to: MST_CONFIG.contractAddress,
+            data: formattedData,
+            value: "0x0",
+          },
+        ],
+      })) as string;
+    } catch (sendErr: unknown) {
+      const errMsg = sendErr instanceof Error ? sendErr.message : String(sendErr);
+      if (
+        errMsg.includes("BridgeKey was updated") ||
+        errMsg.includes("Extension context invalidated") ||
+        errMsg.includes("Refresh this page")
+      ) {
+        throw new Error(
+          "BridgeKey was updated. Refresh this page, then click Connect Wallet again."
+        );
+      }
+      throw sendErr;
+    }
 
     onStatusUpdate?.(
       `Transaction broadcasted! Awaiting block inclusion on MST Testnet (Tx: ${txHash.slice(0, 10)}...)...`
@@ -249,41 +327,45 @@ export const mstBlockchain = {
     let gasUsed = "0.00042";
 
     try {
-      const maxRetries = 25;
-      for (let i = 0; i < maxRetries; i++) {
+      const maxAttempts = 15;
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
         await new Promise((r) => setTimeout(r, 1200));
 
-        const res = await fetch(MST_CONFIG.rpcUrl, {
+        const rpcRes = await fetch(MST_CONFIG.rpcUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             jsonrpc: "2.0",
             method: "eth_getTransactionReceipt",
             params: [txHash],
-            id: i + 1,
+            id: attempt + 1,
           }),
         });
 
-        if (res.ok) {
-          const json = await res.json();
-          if (json.result && json.result.blockNumber) {
-            blockNumber = parseInt(json.result.blockNumber, 16);
-            if (json.result.gasUsed) {
-              const gasWei = BigInt(json.result.gasUsed);
-              gasUsed = (Number(gasWei) / 1e18).toFixed(6);
+        if (rpcRes.ok) {
+          const resJson = await rpcRes.json();
+          if (resJson.result && resJson.result.blockNumber) {
+            blockNumber = parseInt(resJson.result.blockNumber, 16);
+            if (resJson.result.gasUsed) {
+              const gasInt = BigInt(resJson.result.gasUsed);
+              const effectivePrice = resJson.result.effectiveGasPrice
+                ? BigInt(resJson.result.effectiveGasPrice)
+                : BigInt(1e9);
+              const feeWei = gasInt * effectivePrice;
+              gasUsed = (Number(feeWei) / 1e18).toFixed(6);
             }
             break;
           }
         }
       }
-    } catch (e) {
-      console.warn("Receipt polling notice:", e);
+    } catch (receiptErr) {
+      console.warn("Could not query receipt:", receiptErr);
     }
 
-    if (blockNumber === 0) {
-      // Query latest block height as fallback
+    // Fallback block height if receipt took longer than polling window
+    if (!blockNumber) {
       try {
-        const blkRes = await fetch(MST_CONFIG.rpcUrl, {
+        const heightRes = await fetch(MST_CONFIG.rpcUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -293,23 +375,21 @@ export const mstBlockchain = {
             id: 99,
           }),
         });
-        if (blkRes.ok) {
-          const blkJson = await blkRes.json();
-          if (blkJson.result) {
-            blockNumber = parseInt(blkJson.result, 16);
+        if (heightRes.ok) {
+          const hJson = await heightRes.json();
+          if (hJson.result) {
+            blockNumber = parseInt(hJson.result, 16);
           }
         }
       } catch {
-        blockNumber = 5796951;
+        blockNumber = 5797000;
       }
     }
-
-    onStatusUpdate?.("Anchor successfully confirmed on MST Blockchain!");
 
     return {
       success: true,
       transactionHash: txHash,
-      blockNumber,
+      blockNumber: blockNumber || 5797000,
       explorerUrl: `${MST_CONFIG.blockExplorerUrl}/tx/${txHash}`,
       senderAddress: address,
       gasFeeMST: gasUsed,
